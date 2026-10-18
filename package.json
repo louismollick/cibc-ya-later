@@ -1,7 +1,7 @@
 {
   "name": "cibc-ya-later",
   "version": "0.1.0",
-  "description": "Private CIBC downloads and SimpleFIN for macOS",
+  "description": "Automatic, local CIBC transaction sync for Sure and Actual Budget.",
   "main": "out/main/index.js",
   "author": "Louis Mollick",
   "license": "MIT",
