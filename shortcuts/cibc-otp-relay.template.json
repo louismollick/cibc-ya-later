@@ -1,0 +1,181 @@
+{
+  "WFWorkflowName": "CIBC OTP Relay",
+  "WFWorkflowClientRelease": "26.0",
+  "WFWorkflowClientVersion": "4711",
+  "WFWorkflowMinimumClientVersion": 900,
+  "WFWorkflowMinimumClientVersionString": "900",
+  "WFWorkflowIcon": {
+    "WFWorkflowIconGlyphNumber": 59870,
+    "WFWorkflowIconStartColor": 4282601983
+  },
+  "WFWorkflowImportQuestions": [],
+  "WFWorkflowInputContentItemClasses": ["WFStringContentItem"],
+  "WFWorkflowOutputContentItemClasses": [],
+  "WFWorkflowHasOutputFallback": false,
+  "WFWorkflowHasShortcutInputVariables": true,
+  "WFWorkflowTypes": ["ActionExtension"],
+  "WFWorkflowActions": [
+    {
+      "WFWorkflowActionIdentifier": "is.workflow.actions.comment",
+      "WFWorkflowActionParameters": {
+        "WFCommentActionText": "CIBC Ya Later. Pass only a CIBC verification message as text. Sends exactly one standalone 6–8 digit code to your Mac over Tailscale. No relay secret. Restrict TCP 8443 to your iPhone in your tailnet policy."
+      }
+    },
+    {
+      "WFWorkflowActionIdentifier": "is.workflow.actions.gettext",
+      "WFWorkflowActionParameters": {
+        "UUID": "4F9C5501-8591-428E-ADAE-F2B8ACC3FDD7",
+        "WFTextActionText": {
+          "Value": {
+            "string": "￼",
+            "attachmentsByRange": {
+              "{0, 1}": {
+                "Type": "ExtensionInput"
+              }
+            }
+          },
+          "WFSerializationType": "WFTextTokenString"
+        }
+      }
+    },
+    {
+      "WFWorkflowActionIdentifier": "is.workflow.actions.text.match",
+      "WFWorkflowActionParameters": {
+        "UUID": "BEE995EF-1C83-49F7-B378-99B24C6BBD97",
+        "WFMatchTextPattern": "(?<![\\p{L}\\p{N}_])[0-9]{6,8}(?![\\p{L}\\p{N}_])",
+        "text": {
+          "Value": {
+            "string": "￼",
+            "attachmentsByRange": {
+              "{0, 1}": {
+                "Type": "ActionOutput",
+                "OutputUUID": "4F9C5501-8591-428E-ADAE-F2B8ACC3FDD7",
+                "OutputName": "Text"
+              }
+            }
+          },
+          "WFSerializationType": "WFTextTokenString"
+        },
+        "WFMatchTextCaseSensitive": false
+      }
+    },
+    {
+      "WFWorkflowActionIdentifier": "is.workflow.actions.count",
+      "WFWorkflowActionParameters": {
+        "UUID": "6F464613-7BC8-44F6-B268-3F9E4D1407CF",
+        "WFCountType": "Items",
+        "Input": {
+          "Value": {
+            "Type": "ActionOutput",
+            "OutputUUID": "BEE995EF-1C83-49F7-B378-99B24C6BBD97",
+            "OutputName": "Matches"
+          },
+          "WFSerializationType": "WFTextTokenAttachment"
+        }
+      }
+    },
+    {
+      "WFWorkflowActionIdentifier": "is.workflow.actions.conditional",
+      "WFWorkflowActionParameters": {
+        "WFControlFlowMode": 0,
+        "GroupingIdentifier": "A275F30D-6779-4EBB-B2AA-72E055576F13",
+        "WFCondition": 4,
+        "WFInput": {
+          "Type": "Variable",
+          "Variable": {
+            "Value": {
+              "Type": "ActionOutput",
+              "OutputUUID": "6F464613-7BC8-44F6-B268-3F9E4D1407CF",
+              "OutputName": "Count"
+            },
+            "WFSerializationType": "WFTextTokenAttachment"
+          }
+        },
+        "WFNumberValue": 1
+      }
+    },
+    {
+      "WFWorkflowActionIdentifier": "is.workflow.actions.getitemfromlist",
+      "WFWorkflowActionParameters": {
+        "UUID": "9C5EA251-C865-4DEC-824B-B18F3E01E899",
+        "WFItemSpecifier": "First Item",
+        "WFInput": {
+          "Value": {
+            "Type": "ActionOutput",
+            "OutputUUID": "BEE995EF-1C83-49F7-B378-99B24C6BBD97",
+            "OutputName": "Matches"
+          },
+          "WFSerializationType": "WFTextTokenAttachment"
+        }
+      }
+    },
+    {
+      "WFWorkflowActionIdentifier": "is.workflow.actions.downloadurl",
+      "WFWorkflowActionParameters": {
+        "UUID": "6EB30CF8-DAF1-4400-877E-5DFE7AEEDB11",
+        "WFURL": "CIBC_MAC_MFA_URL",
+        "WFHTTPMethod": "POST",
+        "WFHTTPBodyType": "JSON",
+        "ShowHeaders": true,
+        "WFHTTPHeaders": {
+          "Value": {
+            "WFDictionaryFieldValueItems": [
+              {
+                "WFItemType": 0,
+                "WFKey": {
+                  "Value": {
+                    "string": "Content-Type"
+                  },
+                  "WFSerializationType": "WFTextTokenString"
+                },
+                "WFValue": {
+                  "Value": {
+                    "string": "application/json"
+                  },
+                  "WFSerializationType": "WFTextTokenString"
+                }
+              }
+            ]
+          },
+          "WFSerializationType": "WFDictionaryFieldValue"
+        },
+        "WFJSONValues": {
+          "Value": {
+            "WFDictionaryFieldValueItems": [
+              {
+                "WFItemType": 0,
+                "WFKey": {
+                  "Value": {
+                    "string": "code"
+                  },
+                  "WFSerializationType": "WFTextTokenString"
+                },
+                "WFValue": {
+                  "Value": {
+                    "string": "￼",
+                    "attachmentsByRange": {
+                      "{0, 1}": {
+                        "Type": "ActionOutput",
+                        "OutputUUID": "9C5EA251-C865-4DEC-824B-B18F3E01E899",
+                        "OutputName": "Item from List"
+                      }
+                    }
+                  },
+                  "WFSerializationType": "WFTextTokenString"
+                }
+              }
+            ]
+          },
+          "WFSerializationType": "WFDictionaryFieldValue"
+        }
+      }
+    },
+    {
+      "WFWorkflowActionIdentifier": "is.workflow.actions.conditional",
+      "WFWorkflowActionParameters": {
+        "WFControlFlowMode": 2,
+        "GroupingIdentifier": "A275F30D-6779-4EBB-B2AA-72E055576F13"
+      }
+    }
+  ]
+}

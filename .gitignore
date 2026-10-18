@@ -1,0 +1,14 @@
+node_modules/
+out/
+release/
+.env*
+*.sqlite*
+*.db*
+*.csv
+*.ofx
+*.qfx
+*.qbo
+playwright-report/
+test-results/
+.DS_Store
+*.shortcut

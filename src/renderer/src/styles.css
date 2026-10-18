@@ -1,0 +1,418 @@
+@import "tailwindcss";
+@custom-variant dark (&:is(.dark *));
+:root {
+  color-scheme: dark;
+  --background: #000;
+  --foreground: #fff;
+  --card: #000;
+  --card-foreground: #fff;
+  --popover: #111;
+  --popover-foreground: #fff;
+  --primary: #fff;
+  --primary-foreground: #000;
+  --secondary: #171717;
+  --secondary-foreground: #fff;
+  --muted: #151515;
+  --muted-foreground: #929292;
+  --accent: #1b1b1b;
+  --accent-foreground: #fff;
+  --destructive: #ff827e;
+  --border: #242424;
+  --input: #343434;
+  --ring: #888;
+  --success: #84d9a0;
+  --warning: #fbbf24;
+  --radius: 0.35rem;
+}
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-destructive: var(--destructive);
+  --color-success: var(--success);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --radius-sm: calc(var(--radius) - 2px);
+  --radius-md: var(--radius);
+  --radius-lg: calc(var(--radius) + 2px);
+}
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+  body {
+    margin: 0;
+    background: var(--background);
+    color: var(--foreground);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    font-size: 13px;
+    -webkit-font-smoothing: antialiased;
+  }
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+  button,
+  input {
+    -webkit-app-region: no-drag;
+  }
+  h1,
+  h2,
+  h3,
+  p {
+    margin: 0;
+  }
+  h2 {
+    font-size: 17px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+  }
+  h3 {
+    font-size: 13px;
+    font-weight: 600;
+  }
+  p {
+    line-height: 1.6;
+  }
+  ::selection {
+    background: #fff;
+    color: #000;
+  }
+}
+
+/* The window uses a hidden title bar, so the top 52px of each column is a
+   drag area that clears the traffic lights. */
+html,
+body,
+#root {
+  height: 100%;
+}
+.boot {
+  padding: 60px 24px;
+  color: var(--muted-foreground);
+}
+.titlebar {
+  height: 52px;
+  -webkit-app-region: drag;
+}
+
+/* Sign in */
+.signin {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+.signin .titlebar {
+  position: fixed;
+  inset: 0 0 auto;
+}
+.signin form {
+  margin: auto;
+  width: 260px;
+  display: grid;
+  gap: 12px;
+  padding-bottom: 40px;
+}
+.signin h1 {
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin-bottom: 4px;
+}
+.signin label[for] {
+  display: block;
+  font-size: 12px;
+  color: var(--muted-foreground);
+  margin-bottom: 5px;
+}
+.signin .check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.signin .check input {
+  accent-color: #fff;
+  width: 14px;
+  height: 14px;
+}
+[data-slot="input"] {
+  font-size: 13px;
+}
+.error {
+  color: var(--destructive);
+  font-size: 12.5px;
+}
+
+/* Shell */
+.shell {
+  height: 100%;
+  display: flex;
+}
+.shell aside {
+  width: 176px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--border);
+  background: #050505;
+  padding: 52px 8px 10px;
+  -webkit-app-region: drag;
+}
+.shell nav {
+  display: grid;
+  gap: 1px;
+}
+.shell nav button {
+  display: flex;
+  justify-content: space-between;
+  padding: 6px 10px;
+  border-radius: 6px;
+  color: #ccc;
+  text-align: left;
+}
+.shell nav button[aria-current="page"] {
+  background: #1a1a1a;
+  color: #fff;
+}
+.shell nav em {
+  font-style: normal;
+  font-size: 12px;
+  color: #555;
+}
+.status {
+  margin-top: auto;
+  padding: 10px;
+  border-top: 1px solid var(--border);
+  display: grid;
+  gap: 8px;
+  -webkit-app-region: no-drag;
+}
+.status-line {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.status-line svg {
+  width: 12px;
+  height: 12px;
+}
+.status-detail {
+  margin-top: -4px;
+  font-size: 12px;
+  color: var(--muted-foreground);
+}
+.dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--success);
+}
+.dot.warn {
+  background: var(--warning);
+}
+.dot.bad {
+  background: var(--destructive);
+}
+.dot.off {
+  background: transparent;
+  border: 1px solid #555;
+}
+.spin {
+  animation: spin 1s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.shell main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 0 22px 16px;
+  overflow-y: auto;
+}
+
+/* Panes */
+.pane-head {
+  min-height: 52px;
+  padding-top: 18px;
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  -webkit-app-region: drag;
+}
+.pane-head h1 {
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.shell main > .banner:first-child {
+  margin-top: 52px;
+}
+.banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-left: 2px solid var(--destructive);
+  padding: 4px 0 4px 12px;
+  margin: 10px 0 4px;
+}
+.banner.warn {
+  border-color: var(--warning);
+}
+.banner-action,
+.banner-action form {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+.countdown {
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+}
+.code {
+  width: 110px;
+  height: 32px;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  letter-spacing: 0.3em;
+}
+.rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.rows li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+.rows small {
+  display: block;
+  font-size: 12px;
+  color: var(--muted-foreground);
+}
+.amount {
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.empty {
+  color: var(--muted-foreground);
+  padding: 10px 0;
+}
+.quiet {
+  color: var(--muted-foreground);
+  padding: 0;
+  height: auto;
+}
+.quiet:hover {
+  color: var(--foreground);
+}
+form.inline {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+form.inline input {
+  height: 32px;
+  max-width: 220px;
+}
+.token {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.token code {
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-size: 11.5px;
+  background: #0c0c0c;
+  border: 1px solid var(--input);
+  border-radius: 6px;
+  padding: 8px 10px;
+  word-break: break-all;
+  color: #ddd;
+  user-select: all;
+}
+.token div {
+  display: flex;
+  gap: 8px;
+}
+.pane-foot {
+  margin-top: auto;
+  padding-top: 16px;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--muted-foreground);
+}
+.pane-foot code {
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-size: 12px;
+  color: var(--foreground);
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+
+/* Settings */
+.settings {
+  display: grid;
+  grid-template-columns: 130px 1fr;
+  row-gap: 14px;
+  align-items: center;
+  margin: 6px 0 0;
+}
+.settings dt {
+  color: var(--muted-foreground);
+}
+.settings dd {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.settings dd.days {
+  gap: 3px;
+}
+.days button {
+  width: 24px;
+  height: 24px;
+  border-radius: 5px;
+  font-size: 11px;
+  font-weight: 500;
+  border: 1px solid var(--input);
+  color: #666;
+}
+.days button[aria-pressed="true"] {
+  background: #fff;
+  border-color: #fff;
+  color: #000;
+}
+.days button:disabled {
+  opacity: 0.5;
+}
+.time {
+  width: 120px;
+  height: 32px;
+}
