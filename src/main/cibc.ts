@@ -140,7 +140,8 @@ export class CibcDownloader {
     let stored: Awaited<ReturnType<CibcOptions['credentials']>> = null
     let filledCard = false,
       filledPassword = false,
-      submittedMfa = false
+      submittedMfa = false,
+      retries = 0
     const deadline = Date.now() + 240_000
     while (Date.now() < deadline) {
       if (await this.loggedIn(page)) return true
@@ -152,7 +153,15 @@ export class CibcDownloader {
           .count()
       ) {
         trace('CIBC error page shown')
-        throw new CibcRefusedSignIn()
+        // CIBC randomly refuses about 1 in 10 card numbers. Only the card has
+        // been sent, so start over with fresh cookies. Never retry a password.
+        if (!filledCard || filledPassword || retries === 2) throw new CibcRefusedSignIn()
+        retries++
+        filledCard = false
+        await page.context().clearCookies()
+        await page.waitForTimeout(3000)
+        await page.goto(downloadUrl, { waitUntil: 'domcontentloaded' })
+        continue
       }
       // Match visible credential errors after submitting the card or password.
       if (
