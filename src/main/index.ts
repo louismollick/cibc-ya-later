@@ -99,6 +99,7 @@ async function start() {
     session: () => vault.session(),
     saveSession: (value) => vault.saveSession(value),
     mfa,
+    diagnostics: join(dataPath, 'diagnostics'),
     status: (phase, message, codeExpiresAt) => {
       sync.update(phase, message, codeExpiresAt)
       if (phase === 'code-needed')

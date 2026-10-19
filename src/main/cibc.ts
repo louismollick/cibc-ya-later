@@ -1,6 +1,13 @@
 import { existsSync, readdirSync } from 'node:fs'
+import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { type Browser, chromium, type Download, type Page } from 'playwright'
+import {
+  type Browser,
+  type BrowserContextOptions,
+  chromium,
+  type Download,
+  type Page,
+} from 'playwright'
 import { z } from 'zod'
 import type { DownloadedAccount, SyncPhase } from '../shared/types'
 import { CibcRefusedSignIn, CredentialsRejected, UserError } from './errors'
@@ -19,6 +26,18 @@ export type CibcOptions = {
   credentials: () => Promise<z.infer<typeof credentials> | null>
   mfa: MfaGate
   status: (phase: SyncPhase, message: string, codeExpiresAt?: number) => void
+  /** Folder for the last failed run's screenshot and trace. Never shown in the UI. */
+  diagnostics?: string
+}
+type Trace = (event: string) => void
+type StorageState = Exclude<NonNullable<BrowserContextOptions['storageState']>, string>
+// Akamai Bot Manager cookies hold a bot score. Once a saved score goes stale,
+// CIBC refuses every sign-in that reuses it (403 at the card step), so never restore them.
+const botCookie = /^(_abck|ak_bmsc|bm_\w+)$/
+// Drops query strings, which can carry session tokens.
+const tracedUrl = (url: string) => {
+  const u = new URL(url)
+  return `${u.origin}${u.pathname}${u.hash}`
 }
 export function browserExecutable(root: string) {
   if (!existsSync(root))
@@ -66,7 +85,9 @@ export class CibcDownloader {
     // Read/decrypt before launch so a locked Keychain never leaves a browser open.
     const state = await this.options.session()
     this.check(generation)
-    const storageState = state ? JSON.parse(state) : undefined
+    const storageState: StorageState | undefined = state ? JSON.parse(state) : undefined
+    if (storageState)
+      storageState.cookies = storageState.cookies.filter((c) => !botCookie.test(c.name))
     // The full Chrome build runs in new headless mode, so it never takes focus.
     // CIBC resets connections whose user agent says HeadlessChrome, so send the
     // same reduced user agent headed Chrome sends.
@@ -112,7 +133,7 @@ export class CibcDownloader {
       .count()
       .then((c) => c > 0)
   }
-  private async signIn(page: Page, generation: number) {
+  private async signIn(page: Page, generation: number, trace: Trace) {
     this.trusted(page)
     if (await this.loggedIn(page)) return false
     this.options.status('signing-in', 'Signing in')
@@ -129,8 +150,10 @@ export class CibcDownloader {
           .getByText(/there['’]s been an error|Result #0001/i)
           .filter({ visible: true })
           .count()
-      )
+      ) {
+        trace('CIBC error page shown')
         throw new CibcRefusedSignIn()
+      }
       // Match visible credential errors after submitting the card or password.
       if (
         (filledCard || filledPassword) &&
@@ -157,6 +180,7 @@ export class CibcDownloader {
         await card.fill(stored.card)
         filledCard = true
         await page.getByRole('button', { name: /^Continue$/i }).click()
+        trace('card submitted')
       } else if (
         !filledPassword &&
         (await password
@@ -173,6 +197,7 @@ export class CibcDownloader {
           .filter({ visible: true })
           .first()
         await button.click()
+        trace('password submitted')
       } else if (
         !submittedMfa &&
         (await code
@@ -181,6 +206,7 @@ export class CibcDownloader {
           .catch(() => false))
       ) {
         this.check(generation)
+        trace('code requested')
         const pending = this.options.mfa.code((expiresAt) =>
           this.options.status('code-needed', 'Code needed', expiresAt),
         )
@@ -194,6 +220,7 @@ export class CibcDownloader {
           .filter({ visible: true })
           .first()
           .click()
+        trace('code submitted')
         this.options.status('signing-in', 'Signing in')
       }
       await page.waitForTimeout(500)
@@ -204,11 +231,25 @@ export class CibcDownloader {
     work: (page: Page, check: () => void, ready: () => Promise<void>) => Promise<T>,
   ): Promise<T> {
     const generation = ++this.generation
+    const events: string[] = []
+    const trace: Trace = (event) => events.push(`${new Date().toISOString()} ${event}`)
+    let opened: Page | undefined
     try {
       const context = await this.open(generation)
       const page = await context.newPage()
+      opened = page
+      const main = page.mainFrame()
+      page.on('framenavigated', (f) => {
+        if (f === main) trace(`navigated ${tracedUrl(f.url())}`)
+      })
+      page.on('response', (r) => {
+        if (r.status() >= 400) trace(`${r.status()} ${r.request().method()} ${tracedUrl(r.url())}`)
+      })
+      page.on('requestfailed', (r) =>
+        trace(`failed ${r.method()} ${tracedUrl(r.url())} ${r.failure()?.errorText ?? ''}`),
+      )
       await page.goto(downloadUrl, { waitUntil: 'domcontentloaded' })
-      await this.signIn(page, generation)
+      await this.signIn(page, generation, trace)
       this.check(generation)
       await this.options.saveSession(JSON.stringify(await context.storageState()))
       const result = await work(
@@ -216,7 +257,7 @@ export class CibcDownloader {
         () => this.check(generation),
         async () => {
           this.check(generation)
-          const renewed = await this.signIn(page, generation)
+          const renewed = await this.signIn(page, generation, trace)
           this.check(generation)
           if (renewed) await this.options.saveSession(JSON.stringify(await context.storageState()))
         },
@@ -224,12 +265,40 @@ export class CibcDownloader {
       this.check(generation)
       await this.options.saveSession(JSON.stringify(await context.storageState()))
       return result
+    } catch (error) {
+      if (opened && generation === this.generation)
+        await this.saveDiagnostics(opened, events, error)
+      throw error
     } finally {
       this.options.mfa.cancel()
       await this.browser?.close()
       this.browser = null
       this.check(generation)
     }
+  }
+  // Overwrites the previous capture. Best effort: a failed capture never hides the real error.
+  private async saveDiagnostics(page: Page, events: string[], error: unknown) {
+    const folder = this.options.diagnostics
+    if (!folder) return
+    try {
+      await mkdir(folder, { recursive: true, mode: 0o700 })
+      const text = await page
+        .locator('body')
+        .innerText({ timeout: 2000 })
+        .catch(() => '')
+      const report = [
+        `error: ${error instanceof Error ? `${error.name}: ${error.message}` : String(error)}`,
+        `url: ${tracedUrl(page.url())}`,
+        '',
+        ...events,
+        '',
+        '--- visible text ---',
+        text,
+      ].join('\n')
+      await writeFile(join(folder, 'last-failure.txt'), report, { mode: 0o600 })
+      const image = await page.screenshot({ fullPage: true, timeout: 5000 })
+      await writeFile(join(folder, 'last-failure.png'), image, { mode: 0o600 })
+    } catch {}
   }
   async download(days: number, since?: number): Promise<DownloadedAccount[]> {
     return this.withDownloadPage(async (page, check, ready) => {

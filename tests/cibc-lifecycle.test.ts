@@ -67,6 +67,8 @@ it.each(["We're sorry, there's been an error", 'There’s been an error', '[Resu
         setDefaultTimeout: () => {},
         newPage: async () => ({
           goto: async () => {},
+          on: () => {},
+          mainFrame: () => ({}),
           url: () => 'https://www.cibconline.cibc.com/',
           locator: () => ({ filter: () => ({ count: async () => 0 }) }),
           getByText,
@@ -100,6 +102,8 @@ it('does not create an MFA challenge when visibility resolves after cancellation
       setDefaultTimeout: () => {},
       newPage: async () => ({
         goto: async () => {},
+        on: () => {},
+        mainFrame: () => ({}),
         url: () => 'https://www.cibconline.cibc.com/',
         locator: () => ({
           filter: () => ({ count: async () => 0 }),
@@ -138,6 +142,8 @@ it('recognizes a card-step rejection before password submission', async () => {
       setDefaultTimeout: () => {},
       newPage: async () => ({
         goto: async () => {},
+        on: () => {},
+        mainFrame: () => ({}),
         url: () => 'https://www.cibconline.cibc.com/',
         locator: () => ({ filter: () => ({ count: async () => 0 }) }),
         getByText: (pattern: RegExp) => ({
@@ -162,4 +168,25 @@ it('recognizes a card-step rejection before password submission', async () => {
   )
   expect(fill).toHaveBeenCalledExactlyOnceWith('fixture-card')
   expect(config.saveSession).not.toHaveBeenCalled()
+})
+
+it('drops Akamai bot cookies from the saved session', async () => {
+  const config = options()
+  const cookie = (name: string) => ({ name, value: 'x', domain: '.cibc.com', path: '/' })
+  config.session.mockResolvedValue(
+    JSON.stringify({
+      cookies: ['_abck', 'bm_sz', 'ak_bmsc', 'PIM-SESSION-ID'].map(cookie),
+      origins: [],
+    }),
+  )
+  const newContext = vi.fn(async () => {
+    throw new Error('stop')
+  })
+  mock.launch.mockResolvedValue({ version: () => '156.0.0.0', close: async () => {}, newContext })
+  await expect(new CibcDownloader(config).download(60)).rejects.toThrow('stop')
+  expect(newContext).toHaveBeenCalledWith(
+    expect.objectContaining({
+      storageState: { cookies: [cookie('PIM-SESSION-ID')], origins: [] },
+    }),
+  )
 })
