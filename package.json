@@ -18,7 +18,7 @@
     "postinstall": "electron-builder install-app-deps",
     "package": "pnpm run build && electron-builder --mac dir",
     "dist": "pnpm run build && electron-builder --mac dmg",
-    "browser:install": "PLAYWRIGHT_BROWSERS_PATH=node_modules/.cache/ms-playwright playwright install chromium",
+    "browser:install": "PLAYWRIGHT_BROWSERS_PATH=node_modules/.cache/ms-playwright patchright install chromium",
     "icons": "swift scripts/make-icons.swift",
     "smoke": "node scripts/smoke.mjs",
     "shortcut:export": "tsx scripts/export-shortcut.ts"
@@ -36,7 +36,7 @@
     ],
     "asarUnpack": [
       "node_modules/better-sqlite3/**/*",
-      "node_modules/playwright*/**/*",
+      "node_modules/patchright*/**/*",
       "node_modules/@napi-rs/**/*"
     ],
     "mac": {
@@ -63,7 +63,7 @@
     "clsx": "^2.1.1",
     "drizzle-orm": "^0.45.4",
     "lucide-react": "^1.58.0",
-    "playwright": "^1.64.1",
+    "patchright": "1.64.1",
     "radix-ui": "^1.8.1",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
@@ -83,6 +83,7 @@
     "electron": "^44.8.0",
     "electron-builder": "^26.15.3",
     "electron-vite": "^6.0.0",
+    "playwright": "^1.64.1",
     "tailwindcss": "^4.3.3",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",

@@ -1,6 +1,6 @@
 import { createServer } from 'node:http'
 import { join } from 'node:path'
-import { chromium } from 'playwright'
+import { chromium } from 'patchright'
 import { expect, it, vi } from 'vitest'
 import { bankDateRange, browserExecutable, downloadAccounts } from '../src/main/cibc'
 import { ofx, sandboxed } from './helpers'

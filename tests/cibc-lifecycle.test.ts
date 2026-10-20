@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mock = vi.hoisted(() => ({ launch: vi.fn() }))
-vi.mock('playwright', () => ({ chromium: { launch: mock.launch } }))
+vi.mock('patchright', () => ({ chromium: { launch: mock.launch } }))
 
 import { join } from 'node:path'
 import { CibcDownloader } from '../src/main/cibc'
@@ -55,7 +55,6 @@ it.each(["We're sorry, there's been an error", 'There’s been an error', '[Resu
   async (text) => {
     const config = options()
     const close = vi.fn(async () => {})
-    const addInitScript = vi.fn(async () => {})
     const getByText = vi.fn((pattern: RegExp) => ({
       filter: () => ({ count: async () => Number(pattern.test(text)) }),
     }))
@@ -63,7 +62,6 @@ it.each(["We're sorry, there's been an error", 'There’s been an error', '[Resu
       version: () => '156.0.0.0',
       close,
       newContext: async () => ({
-        addInitScript,
         setDefaultTimeout: () => {},
         newPage: async () => ({
           goto: async () => {},
@@ -76,7 +74,16 @@ it.each(["We're sorry, there's been an error", 'There’s been an error', '[Resu
       }),
     })
     await expect(new CibcDownloader(config).download(60)).rejects.toBeInstanceOf(CibcRefusedSignIn)
-    expect(addInitScript).toHaveBeenCalledTimes(1)
+    // Only these switches, so CIBC never sees Playwright's defaults or a HeadlessChrome agent.
+    expect(mock.launch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ignoreDefaultArgs: true,
+        args: expect.arrayContaining([
+          '--remote-debugging-pipe',
+          expect.stringMatching(/^--user-agent=.* Chrome\/\d+\.0\.0\.0 Safari\/537\.36$/),
+        ]),
+      }),
+    )
     expect(getByText).toHaveBeenCalledTimes(1)
     expect(close).toHaveBeenCalledTimes(1)
     expect(config.saveSession).not.toHaveBeenCalled()
@@ -98,7 +105,6 @@ it('does not create an MFA challenge when visibility resolves after cancellation
     version: () => '156.0.0.0',
     close: vi.fn(async () => {}),
     newContext: async () => ({
-      addInitScript: async () => {},
       setDefaultTimeout: () => {},
       newPage: async () => ({
         goto: async () => {},
@@ -138,7 +144,6 @@ it('recognizes a card-step rejection before password submission', async () => {
     version: () => '156.0.0.0',
     close: vi.fn(async () => {}),
     newContext: async () => ({
-      addInitScript: async () => {},
       setDefaultTimeout: () => {},
       newPage: async () => ({
         goto: async () => {},
@@ -204,7 +209,6 @@ it('retries a refused card number in an empty context, then gives up', async () 
     refused = false
   })
   const newContext = vi.fn(async (_options: { storageState?: unknown }) => ({
-    addInitScript: async () => {},
     setDefaultTimeout: () => {},
     close: closeContext,
     newPage: async () => ({

@@ -1,5 +1,5 @@
 import { join } from 'node:path'
-import { type Browser, chromium } from 'playwright'
+import { type Browser, chromium } from 'patchright'
 import { expect, it, vi } from 'vitest'
 import { CibcDownloader } from '../src/main/cibc'
 import { CredentialsRejected } from '../src/main/errors'

@@ -1,13 +1,14 @@
-import { existsSync, readdirSync } from 'node:fs'
-import { mkdir, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { dirname, join } from 'node:path'
 import {
   type Browser,
   type BrowserContextOptions,
   chromium,
   type Download,
   type Page,
-} from 'playwright'
+} from 'patchright'
 import { z } from 'zod'
 import type { DownloadedAccount, SyncPhase } from '../shared/types'
 import { CibcRefusedSignIn, CredentialsRejected, UserError } from './errors'
@@ -59,6 +60,13 @@ export function browserExecutable(root: string) {
     throw new UserError('The bundled CIBC browser is not compatible with this Mac.')
   return path
 }
+// Reads the bundled Chrome's version, which the user agent needs before launch.
+function browserVersion(executable: string) {
+  const plist = readFileSync(join(dirname(dirname(executable)), 'Info.plist'), 'utf8')
+  const version = plist.match(/<key>CFBundleShortVersionString<\/key>\s*<string>([\d.]+)</)?.[1]
+  if (!version) throw new UserError('The bundled CIBC browser is damaged. Reinstall the app.')
+  return version
+}
 export function bankDateRange(days: number, now = new Date()) {
   const today = now.toLocaleDateString('en-CA', { timeZone: 'America/Toronto' })
   const end = new Date(`${today}T00:00:00Z`)
@@ -90,22 +98,42 @@ export class CibcDownloader {
   private check(generation: number) {
     if (generation !== this.generation) throw new UserError('CIBC operation cancelled.')
   }
-  // Launches Chromium and returns a factory for browser contexts. Pass fresh to
-  // skip the saved session.
-  private async open(generation: number) {
+  // Launches Chromium on an empty profile folder and returns a factory for
+  // browser contexts. Pass fresh to skip the saved session.
+  private async open(generation: number, profile: string) {
     // Read/decrypt before launch so a locked Keychain never leaves a browser open.
     const state = this.staleSession ? undefined : await this.options.session()
     this.check(generation)
     const storageState: StorageState | undefined = state ? JSON.parse(state) : undefined
     if (storageState)
       storageState.cookies = storageState.cookies.filter((c) => !botCookie.test(c.name))
-    // The full Chrome build runs in new headless mode, so it never takes focus.
+    const executablePath = browserExecutable(this.options.browserRoot)
+    const major = browserVersion(executablePath).split('.')[0]
+    // CIBC's bot detection flags Playwright's default Chrome switches and its
+    // CDP leaks, so Patchright launches Chrome with only these switches. The
+    // full Chrome build runs in new headless mode, so it never takes focus.
     // CIBC resets connections whose user agent says HeadlessChrome, so send the
-    // same reduced user agent headed Chrome sends.
+    // reduced user agent headed Chrome sends. Setting it and the language at
+    // launch, not per context, keeps workers consistent with the page.
     const browser = await chromium.launch({
-      executablePath: browserExecutable(this.options.browserRoot),
+      executablePath,
       headless: true,
       chromiumSandbox: true,
+      ignoreDefaultArgs: true,
+      args: [
+        '--remote-debugging-pipe',
+        `--user-data-dir=${profile}`,
+        '--headless',
+        `--user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${major}.0.0.0 Safari/537.36`,
+        '--lang=en-CA',
+        '--accept-lang=en-CA,en',
+        '--disable-blink-features=AutomationControlled',
+        '--no-first-run',
+        '--no-default-browser-check',
+        // Keeps Chrome out of the macOS Keychain.
+        '--use-mock-keychain',
+        '--password-store=basic',
+      ],
     })
     this.browser = browser
     this.check(generation)
@@ -113,25 +141,10 @@ export class CibcDownloader {
       this.newContext(browser, generation, fresh ? undefined : storageState)
   }
   private async newContext(browser: Browser, generation: number, storageState?: StorageState) {
-    const major = browser.version().split('.')[0]
     const context = await browser.newContext({
       storageState,
       acceptDownloads: true,
       viewport: { width: 1280, height: 900 },
-      locale: 'en-CA',
-      userAgent: `Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${major}.0.0.0 Safari/537.36`,
-    })
-    this.check(generation)
-    // Match headed Chrome's screen and window metrics for CIBC's bot detection checks.
-    await context.addInitScript(() => {
-      Object.defineProperties(Screen.prototype, {
-        colorDepth: { get: () => 30 },
-        pixelDepth: { get: () => 30 },
-      })
-      Object.defineProperties(window, {
-        outerWidth: { get: () => innerWidth },
-        outerHeight: { get: () => innerHeight + 87 },
-      })
     })
     this.check(generation)
     context.setDefaultTimeout(15_000)
@@ -254,9 +267,11 @@ export class CibcDownloader {
       this.options.log?.(event)
     }
     let opened: Page | undefined
+    let profile: string | undefined
     trace('run started')
     try {
-      const newContext = await this.open(generation)
+      profile = await mkdtemp(join(tmpdir(), 'cibc-browser-'))
+      const newContext = await this.open(generation, profile)
       // Opens the download form in a new context, tracing its main frame.
       const start = async (fresh: boolean) => {
         const context = await newContext(fresh)
@@ -320,6 +335,9 @@ export class CibcDownloader {
       this.options.mfa.cancel()
       await this.browser?.close()
       this.browser = null
+      // Best effort: Chrome can still be writing to its profile while it exits.
+      if (profile)
+        await rm(profile, { recursive: true, force: true, maxRetries: 5 }).catch(() => {})
       this.check(generation)
     }
   }
