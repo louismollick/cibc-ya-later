@@ -14,15 +14,15 @@ it.each(['early', 'late', 'cancel'] as const)(
     expect(gate.expiresAt).toBe(Date.now() / 1000 + 180)
     await vi.advanceTimersByTimeAsync(44_999)
     expect(fallback).not.toHaveBeenCalled()
-    if (mode === 'early') gate.submit('123456')
+    if (mode === 'early') gate.submit('123456', 'manual')
     else if (mode === 'cancel') gate.cancel()
     await vi.advanceTimersByTimeAsync(1)
     expect(fallback).toHaveBeenCalledTimes(mode === 'late' ? 1 : 0)
     if (mode === 'late') {
       expect(fallback).toHaveBeenCalledWith(Date.now() / 1000 + 135)
-      gate.submit('123456')
+      gate.submit('123456', 'manual')
     }
-    expect(await result).toBe(mode === 'cancel' ? null : '123456')
+    expect(await result).toEqual(mode === 'cancel' ? null : { code: '123456', source: 'manual' })
     expect(vi.getTimerCount()).toBe(0)
   },
 )

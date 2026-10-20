@@ -1,8 +1,11 @@
 import { UserError } from './errors'
 import { codeSchema } from './validation'
+/** Where a verification code came from: the iPhone code relay or typed into the app. */
+export type MfaSource = 'relay' | 'manual'
+export type MfaCode = { code: string; source: MfaSource }
 export class MfaGate {
   private waiting: {
-    resolve: (code: string) => void
+    resolve: (code: MfaCode) => void
     reject: (error: Error) => void
     timer: ReturnType<typeof setTimeout>
     expires: number
@@ -30,7 +33,7 @@ export class MfaGate {
   get active() {
     return this.waiting !== null && Date.now() < this.waiting.expires
   }
-  wait(timeoutMs = 180_000): Promise<string> {
+  wait(timeoutMs = 180_000): Promise<MfaCode> {
     if (this.waiting) throw new UserError('A CIBC MFA challenge is already active.')
     this.attempts = 0
     this.sequence++
@@ -39,7 +42,7 @@ export class MfaGate {
       this.waiting = { resolve, reject, timer, expires: Date.now() + timeoutMs }
     })
   }
-  submit(value: string, challenge = this.challenge) {
+  submit(value: string, source: MfaSource, challenge = this.challenge) {
     if (!this.active) throw new UserError('No CIBC login is awaiting a verification code.')
     if (challenge === null || challenge !== this.challenge)
       throw new UserError('The CIBC verification challenge has changed.')
@@ -53,7 +56,7 @@ export class MfaGate {
     if (!waiting) throw new UserError('MFA challenge expired.')
     clearTimeout(waiting.timer)
     this.waiting = null
-    waiting.resolve(code)
+    waiting.resolve({ code, source })
   }
   cancel(reason = 'CIBC login cancelled.') {
     const waiting = this.waiting

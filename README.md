@@ -82,6 +82,7 @@ Remove any broad allow rules that would also cover these ports. The app never tu
 - **Your Mac needs to be awake** for scheduled syncs and for your budgeting app to fetch.
 - **Unexpected CIBC challenge?** Sign in once at cibc.com, then click **Sync**.
 - **Data location:** `~/Library/Application Support/CIBC Ya Later`. Credentials are in the macOS Keychain.
+- **What happened during a sync?** `sync-log.txt` in the data folder records each run's sign-in steps, whether the code came from your iPhone or was typed in, and every request the code relay received. It never contains your password or codes.
 - **Keychain prompts after rebuilding?** Builds are signed with your Apple Development certificate if you have one, so "Always Allow" sticks. Without one, every rebuild asks again.
 
 ## Development

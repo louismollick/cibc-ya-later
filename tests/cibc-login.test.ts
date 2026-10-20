@@ -65,6 +65,7 @@ it.skipIf(sandboxed).each(['rolling', 'backfill', 'cancel', 'rejected'] as const
     })
     const mfa = new MfaGate()
     const phases: string[] = []
+    const log = vi.fn()
     let downloader: CibcDownloader
     const saveSession = vi.fn(async () => {
       if (mode === 'cancel' && saveSession.mock.calls.length === 2) void downloader.cancel()
@@ -76,15 +77,17 @@ it.skipIf(sandboxed).each(['rolling', 'backfill', 'cancel', 'rejected'] as const
         session: async () => undefined,
         saveSession,
         mfa,
+        log,
         status: (phase) => {
           phases.push(phase)
-          if (phase === 'signing-in' && mfa.active) mfa.submit('314159')
+          if (phase === 'signing-in' && mfa.active) mfa.submit('314159', 'relay')
         },
       })
       if (mode === 'rejected') {
         await expect(downloader.download(60)).rejects.toBeInstanceOf(CredentialsRejected)
         expect(exports).toBe(0)
         expect(saveSession).not.toHaveBeenCalled()
+        expect(log).toHaveBeenLastCalledWith('run failed: CIBC rejected the password.')
         return
       }
       if (mode === 'cancel') await expect(downloader.backfill()).rejects.toThrow('cancelled')
@@ -100,6 +103,11 @@ it.skipIf(sandboxed).each(['rolling', 'backfill', 'cancel', 'rejected'] as const
       expect(exports).toBe(2)
       expect(saveSession).toHaveBeenCalledTimes(mode === 'backfill' ? 3 : 2)
       expect(mfa.active).toBe(false)
+      const lines = log.mock.calls.map(([line]) => line)
+      expect(lines[0]).toBe('run started')
+      expect(lines).toContain('code received via relay')
+      expect(lines.join('\n')).not.toMatch(/314159|fixture-card|fixture-password/)
+      if (mode !== 'cancel') expect(lines.at(-1)).toBe('run finished')
       expect(launchedBrowser?.isConnected()).toBe(false)
     } finally {
       interceptedLaunch.mockRestore()

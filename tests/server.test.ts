@@ -1,5 +1,5 @@
 import { request, type Server } from 'node:http'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MfaGate } from '../src/main/mfa'
 import { listen, mfaServer, simplefinServer } from '../src/main/server'
 import { Store } from '../src/main/store'
@@ -166,7 +166,8 @@ describe('SimpleFIN HTTP', () => {
 describe('MFA HTTP and lifecycle', () => {
   it('accepts one code only during the active challenge on its separate listener', async () => {
     const gate = new MfaGate(),
-      url = await start(mfaServer(gate, () => base, 0))
+      log = vi.fn(),
+      url = await start(mfaServer(gate, () => base, log, 0))
     const post = (code = '123456', identity = 'iphone@example.com') =>
       fetch(`${url}/internal/mfa/code`, {
         method: 'POST',
@@ -182,8 +183,16 @@ describe('MFA HTTP and lifecycle', () => {
     expect((await post('123456', '')).status).toBe(403)
     expect((await post('bad')).status).toBe(400)
     expect((await post()).status).toBe(204)
-    expect(await waiting).toBe('123456')
+    expect(await waiting).toEqual({ code: '123456', source: 'relay' })
     expect((await post()).status).toBe(409)
+    expect(log.mock.calls.map(([line]) => line.split(' ')[3])).toEqual([
+      '409',
+      '403',
+      '400',
+      '204',
+      '409',
+    ])
+    expect(log.mock.calls.flat().join('\n')).not.toContain('123456')
   })
   it('expires and cancels challenges without retaining a code', async () => {
     const gate = new MfaGate(),
@@ -193,11 +202,11 @@ describe('MFA HTTP and lifecycle', () => {
     const next = gate.wait()
     gate.cancel()
     await expect(next).rejects.toThrow('cancelled')
-    expect(() => gate.submit('123456')).toThrow('No CIBC')
+    expect(() => gate.submit('123456', 'manual')).toThrow('No CIBC')
   })
   it('requires Serve identity and rejects Funnel, browser origins and foreign hosts', async () => {
     const gate = new MfaGate(),
-      url = await start(mfaServer(gate, () => base, 0))
+      url = await start(mfaServer(gate, () => base, undefined, 0))
     const post = (extra: Record<string, string>) =>
       new Promise<number>((resolve, reject) => {
         const req = request(
@@ -225,7 +234,7 @@ describe('MFA HTTP and lifecycle', () => {
       expect(await post(extra)).toBe(403)
     expect(gate.active).toBe(true)
     expect(await post({ ...identity, host: 'bank.tailnet.ts.net:8443' })).toBe(204)
-    expect(await waiting).toBe('00123456')
+    expect(await waiting).toEqual({ code: '00123456', source: 'relay' })
   })
 })
 describe('Input constraints', () => {
@@ -257,9 +266,9 @@ it('does not allow a code from an expired login to resolve a newer challenge', a
   gate.cancel()
   await expect(first).rejects.toThrow()
   const second = gate.wait()
-  expect(() => gate.submit('123456', old)).toThrow('changed')
-  gate.submit('654321')
-  expect(await second).toBe('654321')
+  expect(() => gate.submit('123456', 'manual', old)).toThrow('changed')
+  gate.submit('654321', 'manual')
+  expect(await second).toEqual({ code: '654321', source: 'manual' })
 })
 it('rejects authenticated requests marked as public Tailscale Funnel traffic', async () => {
   store.saveSnapshot([sampleAccount()], 1)

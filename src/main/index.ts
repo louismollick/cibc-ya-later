@@ -20,6 +20,7 @@ import trayIcon from '../../resources/trayTemplate.png?asset'
 import type { AppState } from '../shared/types'
 import { CibcDownloader } from './cibc'
 import { UserError } from './errors'
+import { activityLog } from './log'
 import { MfaGate } from './mfa'
 import { listen, mfaServer, simplefinServer } from './server'
 import { exportRelayShortcut } from './shortcut'
@@ -69,6 +70,7 @@ async function start() {
   const store = new Store(join(dataPath, 'cibc.sqlite'))
   const vault = new Vault(dataPath)
   const mfa = new MfaGate()
+  const log = activityLog(join(dataPath, 'sync-log.txt'))
   let hasCredentials = Boolean(await vault.credentials())
   let changingCredentials = false
   let tailscale = await tailscaleStatus()
@@ -100,6 +102,7 @@ async function start() {
     saveSession: (value) => vault.saveSession(value),
     mfa,
     diagnostics: join(dataPath, 'diagnostics'),
+    log,
     status: (phase, message, codeExpiresAt) => {
       sync.update(phase, message, codeExpiresAt)
       if (phase === 'code-needed')
@@ -165,7 +168,7 @@ async function start() {
   }
   sync = new SyncService(store, downloader, change, canSync)
   const api = simplefinServer(store, sync),
-    mfaApi = mfaServer(mfa, () => store.get('baseUrl') ?? '')
+    mfaApi = mfaServer(mfa, () => store.get('baseUrl') ?? '', log)
   try {
     await listen(api, 3610)
     await listen(mfaApi, 3611)
@@ -288,7 +291,7 @@ async function start() {
     if (canSync()) void sync.startFullHistory()
   })
   handle('cancel-sync', () => sync.cancel())
-  handle('submit-code', (code) => mfa.submit(codeSchema.parse(code)))
+  handle('submit-code', (code) => mfa.submit(codeSchema.parse(code), 'manual'))
   handle('connect-app', (label) => {
     const base = store.get('baseUrl') ?? ''
     if (!validBaseUrl(base) || !tailscale.serving || !apiState.running)

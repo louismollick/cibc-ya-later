@@ -1,4 +1,5 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
+import type { Log } from './log'
 import type { MfaGate } from './mfa'
 import type { Store } from './store'
 import type { SyncService } from './sync'
@@ -143,19 +144,29 @@ export function simplefinServer(store: Store, sync: Pick<SyncService, 'status'>,
     }
   })
 }
-export function mfaServer(gate: MfaGate, getBaseUrl: () => string, port = 3611) {
+// Logs each request's outcome so relay deliveries can be checked afterwards. Never logs the code.
+export function mfaServer(
+  gate: MfaGate,
+  getBaseUrl: () => string,
+  log: Log = () => {},
+  port = 3611,
+) {
   let requests = 0,
     resetAt = Date.now() + 60_000
   return createServer(async (req, res) => {
+    const reply = (status: number, text: string, body = text) => {
+      log(`code relay request: ${status} ${text}`)
+      send(res, status, body, 'text/plain')
+    }
     try {
       // Serve strips spoofed identity headers, then sets these for authenticated
       // tailnet users. The loopback listener must never be exposed directly.
       if (!trustedRequest(req, getBaseUrl(), port, true) || !req.headers['tailscale-user-login']) {
-        send(res, 403, 'Forbidden', 'text/plain')
+        reply(403, 'Forbidden')
         return
       }
       if (req.method !== 'POST' || req.url !== '/internal/mfa/code') {
-        send(res, 404, 'Not found', 'text/plain')
+        reply(404, 'Not found')
         return
       }
       if (Date.now() > resetAt) {
@@ -163,16 +174,16 @@ export function mfaServer(gate: MfaGate, getBaseUrl: () => string, port = 3611) 
         resetAt = Date.now() + 60_000
       }
       if (++requests > 10) {
-        send(res, 429, 'Too many attempts.', 'text/plain')
+        reply(429, 'Too many attempts.')
         return
       }
       const challenge = gate.challenge
       if (challenge === null) {
-        send(res, 409, 'No CIBC login is awaiting MFA.', 'text/plain')
+        reply(409, 'No CIBC login is awaiting MFA.')
         return
       }
       if (!(req.headers['content-type'] ?? '').startsWith('application/json')) {
-        send(res, 415, 'Use application/json.', 'text/plain')
+        reply(415, 'Use application/json.')
         return
       }
       try {
@@ -185,14 +196,14 @@ export function mfaServer(gate: MfaGate, getBaseUrl: () => string, port = 3611) 
           Object.keys(input).length !== 1
         )
           throw new Error('Invalid code.')
-        gate.submit(input.code, challenge)
+        gate.submit(input.code, 'relay', challenge)
       } catch {
-        send(res, 400, 'Invalid or expired verification code.', 'text/plain')
+        reply(400, 'Invalid or expired verification code.')
         return
       }
-      send(res, 204, '', 'text/plain')
+      reply(204, 'Code accepted.', '')
     } catch {
-      send(res, 500, 'MFA request failed.', 'text/plain')
+      reply(500, 'MFA request failed.')
     }
   })
 }

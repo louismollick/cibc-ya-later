@@ -11,6 +11,7 @@ import {
 import { z } from 'zod'
 import type { DownloadedAccount, SyncPhase } from '../shared/types'
 import { CibcRefusedSignIn, CredentialsRejected, UserError } from './errors'
+import type { Log } from './log'
 import type { MfaGate } from './mfa'
 import { accountId, money, parseOfx } from './ofx'
 
@@ -28,6 +29,8 @@ export type CibcOptions = {
   status: (phase: SyncPhase, message: string, codeExpiresAt?: number) => void
   /** Folder for the last failed run's screenshot and trace. Never shown in the UI. */
   diagnostics?: string
+  /** Receives every trace event, on success and failure. */
+  log?: Log
 }
 type Trace = (event: string) => void
 type StorageState = Exclude<NonNullable<BrowserContextOptions['storageState']>, string>
@@ -216,13 +219,14 @@ export class CibcDownloader {
       ) {
         this.check(generation)
         trace('code requested')
-        const pending = this.options.mfa.code((expiresAt) =>
-          this.options.status('code-needed', 'Code needed', expiresAt),
-        )
+        const pending = this.options.mfa.code((expiresAt) => {
+          trace('code relay timed out, manual entry offered')
+          this.options.status('code-needed', 'Code needed', expiresAt)
+        })
         this.options.status('signing-in', 'Signing in')
-        let value = await pending
-        await code.first().fill(value)
-        value = ''
+        const received = await pending
+        trace(`code received via ${received.source}`)
+        await code.first().fill(received.code)
         submittedMfa = true
         await page
           .getByRole('button', { name: /^(Verify|Continue|Submit|Next)$/i })
@@ -241,8 +245,12 @@ export class CibcDownloader {
   ): Promise<T> {
     const generation = ++this.generation
     const events: string[] = []
-    const trace: Trace = (event) => events.push(`${new Date().toISOString()} ${event}`)
+    const trace: Trace = (event) => {
+      events.push(`${new Date().toISOString()} ${event}`)
+      this.options.log?.(event)
+    }
     let opened: Page | undefined
+    trace('run started')
     try {
       const context = await this.open(generation)
       const page = await context.newPage()
@@ -273,8 +281,10 @@ export class CibcDownloader {
       )
       this.check(generation)
       await this.options.saveSession(JSON.stringify(await context.storageState()))
+      trace('run finished')
       return result
     } catch (error) {
+      trace(`run failed: ${error instanceof Error ? error.message.split('\n')[0] : String(error)}`)
       if (opened && generation === this.generation)
         await this.saveDiagnostics(opened, events, error)
       throw error
