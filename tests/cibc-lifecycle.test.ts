@@ -191,47 +191,53 @@ it('drops Akamai bot cookies from the saved session', async () => {
   )
 })
 
-it('retries a refused card number with fresh cookies, then gives up', async () => {
+it('retries a refused card number in an empty context, then gives up', async () => {
   const config = {
     ...options(),
     credentials: vi.fn(async () => ({ card: 'fixture-card', password: 'fixture-password' })),
   }
+  config.session.mockResolvedValue(JSON.stringify({ cookies: [], origins: [] }))
   let refused = false
   const fill = vi.fn(async () => {})
-  const clearCookies = vi.fn(async () => {})
+  const closeContext = vi.fn(async () => {})
   const goto = vi.fn(async () => {
     refused = false
   })
+  const newContext = vi.fn(async (_options: { storageState?: unknown }) => ({
+    addInitScript: async () => {},
+    setDefaultTimeout: () => {},
+    close: closeContext,
+    newPage: async () => ({
+      goto,
+      on: () => {},
+      mainFrame: () => ({}),
+      url: () => 'https://www.cibconline.cibc.com/',
+      locator: () => ({ filter: () => ({ count: async () => 0 }) }),
+      getByText: (pattern: RegExp) => ({
+        filter: () => ({ count: async () => Number(refused && pattern.test('[Result #0001]')) }),
+      }),
+      getByRole: () => ({
+        isVisible: async () => !refused,
+        fill,
+        click: async () => {
+          refused = true
+        },
+        or: () => ({}),
+      }),
+      waitForTimeout: async () => {},
+    }),
+  }))
   mock.launch.mockResolvedValue({
     version: () => '156.0.0.0',
     close: vi.fn(async () => {}),
-    newContext: async () => ({
-      addInitScript: async () => {},
-      setDefaultTimeout: () => {},
-      newPage: async () => ({
-        goto,
-        on: () => {},
-        mainFrame: () => ({}),
-        context: () => ({ clearCookies }),
-        url: () => 'https://www.cibconline.cibc.com/',
-        locator: () => ({ filter: () => ({ count: async () => 0 }) }),
-        getByText: (pattern: RegExp) => ({
-          filter: () => ({ count: async () => Number(refused && pattern.test('[Result #0001]')) }),
-        }),
-        getByRole: () => ({
-          isVisible: async () => !refused,
-          fill,
-          click: async () => {
-            refused = true
-          },
-          or: () => ({}),
-        }),
-        waitForTimeout: async () => {},
-      }),
-    }),
+    newContext,
   })
-  await expect(new CibcDownloader(config).download(60)).rejects.toBeInstanceOf(CibcRefusedSignIn)
+  const downloader = new CibcDownloader(config)
+  await expect(downloader.download(60)).rejects.toBeInstanceOf(CibcRefusedSignIn)
   expect(fill).toHaveBeenCalledTimes(3)
-  expect(clearCookies).toHaveBeenCalledTimes(2)
-  expect(goto).toHaveBeenCalledTimes(3)
+  expect(closeContext).toHaveBeenCalledTimes(2)
+  expect(newContext.mock.calls.map(([o]) => Boolean(o.storageState))).toEqual([true, false, false])
+  // The next run skips the saved session too.
+  await expect(downloader.download(60)).rejects.toBeInstanceOf(CibcRefusedSignIn)
+  expect(config.session).toHaveBeenCalledTimes(1)
 })

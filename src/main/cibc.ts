@@ -72,8 +72,14 @@ export function bankDateRange(days: number, now = new Date()) {
   }
 }
 
+// A refusal after only the card number was sent, so retrying is safe.
+class CardRefused extends CibcRefusedSignIn {}
+
 export class CibcDownloader {
   private browser: Browser | null = null
+  // Set when CIBC refuses a card number. The saved session is then skipped
+  // until a sign-in succeeds and overwrites it.
+  private staleSession = false
   private generation = 0
   constructor(private readonly options: CibcOptions) {}
   async cancel() {
@@ -84,9 +90,11 @@ export class CibcDownloader {
   private check(generation: number) {
     if (generation !== this.generation) throw new UserError('CIBC operation cancelled.')
   }
+  // Launches Chromium and returns a factory for browser contexts. Pass fresh to
+  // skip the saved session.
   private async open(generation: number) {
     // Read/decrypt before launch so a locked Keychain never leaves a browser open.
-    const state = await this.options.session()
+    const state = this.staleSession ? undefined : await this.options.session()
     this.check(generation)
     const storageState: StorageState | undefined = state ? JSON.parse(state) : undefined
     if (storageState)
@@ -94,14 +102,19 @@ export class CibcDownloader {
     // The full Chrome build runs in new headless mode, so it never takes focus.
     // CIBC resets connections whose user agent says HeadlessChrome, so send the
     // same reduced user agent headed Chrome sends.
-    this.browser = await chromium.launch({
+    const browser = await chromium.launch({
       executablePath: browserExecutable(this.options.browserRoot),
       headless: true,
       chromiumSandbox: true,
     })
+    this.browser = browser
     this.check(generation)
-    const major = this.browser.version().split('.')[0]
-    const context = await this.browser.newContext({
+    return (fresh: boolean) =>
+      this.newContext(browser, generation, fresh ? undefined : storageState)
+  }
+  private async newContext(browser: Browser, generation: number, storageState?: StorageState) {
+    const major = browser.version().split('.')[0]
+    const context = await browser.newContext({
       storageState,
       acceptDownloads: true,
       viewport: { width: 1280, height: 900 },
@@ -143,8 +156,7 @@ export class CibcDownloader {
     let stored: Awaited<ReturnType<CibcOptions['credentials']>> = null
     let filledCard = false,
       filledPassword = false,
-      submittedMfa = false,
-      retries = 0
+      submittedMfa = false
     const deadline = Date.now() + 240_000
     while (Date.now() < deadline) {
       if (await this.loggedIn(page)) return true
@@ -156,15 +168,7 @@ export class CibcDownloader {
           .count()
       ) {
         trace('CIBC error page shown')
-        // CIBC randomly refuses about 1 in 10 card numbers. Only the card has
-        // been sent, so start over with fresh cookies. Never retry a password.
-        if (!filledCard || filledPassword || retries === 2) throw new CibcRefusedSignIn()
-        retries++
-        filledCard = false
-        await page.context().clearCookies()
-        await page.waitForTimeout(3000)
-        await page.goto(downloadUrl, { waitUntil: 'domcontentloaded' })
-        continue
+        throw filledCard && !filledPassword ? new CardRefused() : new CibcRefusedSignIn()
       }
       // Match visible credential errors after submitting the card or password.
       if (
@@ -252,23 +256,47 @@ export class CibcDownloader {
     let opened: Page | undefined
     trace('run started')
     try {
-      const context = await this.open(generation)
-      const page = await context.newPage()
-      opened = page
-      const main = page.mainFrame()
-      page.on('framenavigated', (f) => {
-        if (f === main) trace(`navigated ${tracedUrl(f.url())}`)
-      })
-      page.on('response', (r) => {
-        if (r.status() >= 400) trace(`${r.status()} ${r.request().method()} ${tracedUrl(r.url())}`)
-      })
-      page.on('requestfailed', (r) =>
-        trace(`failed ${r.method()} ${tracedUrl(r.url())} ${r.failure()?.errorText ?? ''}`),
-      )
-      await page.goto(downloadUrl, { waitUntil: 'domcontentloaded' })
-      await this.signIn(page, generation, trace)
+      const newContext = await this.open(generation)
+      // Opens the download form in a new context, tracing its main frame.
+      const start = async (fresh: boolean) => {
+        const context = await newContext(fresh)
+        const page = await context.newPage()
+        opened = page
+        const main = page.mainFrame()
+        page.on('framenavigated', (f) => {
+          if (f === main) trace(`navigated ${tracedUrl(f.url())}`)
+        })
+        page.on('response', (r) => {
+          if (r.status() >= 400)
+            trace(`${r.status()} ${r.request().method()} ${tracedUrl(r.url())}`)
+        })
+        page.on('requestfailed', (r) =>
+          trace(`failed ${r.method()} ${tracedUrl(r.url())} ${r.failure()?.errorText ?? ''}`),
+        )
+        await page.goto(downloadUrl, { waitUntil: 'domcontentloaded' })
+        return { context, page }
+      }
+      let { context, page } = await start(false)
+      // CIBC sometimes refuses a card number, then keeps refusing that browser's
+      // storage even after its cookies are cleared. Only the card has been sent,
+      // so start over in an empty context, up to twice. Never retry a password.
+      for (let retries = 0; ; retries++) {
+        try {
+          await this.signIn(page, generation, trace)
+          break
+        } catch (error) {
+          if (!(error instanceof CardRefused)) throw error
+          this.staleSession = true
+          if (retries === 2) throw error
+          await page.waitForTimeout(3000)
+          await context.close()
+          this.check(generation)
+          ;({ context, page } = await start(true))
+        }
+      }
       this.check(generation)
       await this.options.saveSession(JSON.stringify(await context.storageState()))
+      this.staleSession = false
       const result = await work(
         page,
         () => this.check(generation),
